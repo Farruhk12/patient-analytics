@@ -1,0 +1,62 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write config.js from secrets
+        env:
+          SCRIPT_URL: ${{ secrets.SCRIPT_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          ADMIN_LOGIN: ${{ secrets.ADMIN_LOGIN }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const cfg = {
+            SCRIPT_URL: process.env.SCRIPT_URL || '',
+            GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
+            GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+            ADMIN_LOGIN: process.env.ADMIN_LOGIN || 'admin',
+            ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '',
+          };
+          fs.writeFileSync(
+            'config.js',
+            '// Generated in CI\nwindow.APP_CONFIG = ' + JSON.stringify(cfg, null, 2) + ';\n'
+          );
+          NODE
+
+      - name: Assemble site (no repo metadata)
+        run: |
+          mkdir _site
+          cp index.html login.html app.js auth.js norms.js style.css config.js manifest.json google-apps-script.js favicon.svg apple-touch-icon.svg icon-192.svg icon-512.svg _site/
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v4
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
