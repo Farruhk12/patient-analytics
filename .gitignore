@@ -6,3 +6,4 @@ Thumbs.db
 *.zip
 .env
 config.js
+dist/

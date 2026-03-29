@@ -23,40 +23,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Write config.js from secrets
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm install
+
+      - name: Build site (dist + config.js)
         env:
           SCRIPT_URL: ${{ secrets.SCRIPT_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
           ADMIN_LOGIN: ${{ secrets.ADMIN_LOGIN }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const cfg = {
-            SCRIPT_URL: process.env.SCRIPT_URL || '',
-            GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
-            GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
-            ADMIN_LOGIN: process.env.ADMIN_LOGIN || 'admin',
-            ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '',
-          };
-          fs.writeFileSync(
-            'config.js',
-            '// Generated in CI\nwindow.APP_CONFIG = ' + JSON.stringify(cfg, null, 2) + ';\n'
-          );
-          NODE
-
-      - name: Assemble site (no repo metadata)
-        run: |
-          mkdir _site
-          cp index.html login.html app.js auth.js norms.js style.css config.js manifest.json google-apps-script.js favicon.svg apple-touch-icon.svg icon-192.svg icon-512.svg _site/
-          touch _site/.nojekyll
+        run: npm run build
 
       - uses: actions/configure-pages@v4
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: dist
 
       - id: deployment
         uses: actions/deploy-pages@v4

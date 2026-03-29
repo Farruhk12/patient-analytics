@@ -49,8 +49,8 @@ var Auth = (function() {
   function getAdminCredentials() {
     var cfg = window.APP_CONFIG || {};
     return {
-      login:    cfg.ADMIN_LOGIN    || 'admin',
-      password: cfg.ADMIN_PASSWORD || ''
+      login:    String(cfg.ADMIN_LOGIN != null ? cfg.ADMIN_LOGIN : 'admin').trim(),
+      password: String(cfg.ADMIN_PASSWORD != null ? cfg.ADMIN_PASSWORD : '').trim()
     };
   }
 
@@ -98,7 +98,7 @@ var Auth = (function() {
 
     // Санитизация входных данных
     loginVal = String(loginVal || '').trim().slice(0, 64);
-    password = String(password || '').slice(0, 128);
+    password = String(password || '').trim().slice(0, 128);
 
     if (!loginVal || !password) {
       return { ok: false };
