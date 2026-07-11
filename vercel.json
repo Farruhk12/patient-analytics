@@ -6,6 +6,14 @@
     "api/analyze.js": {
       "memory": 256,
       "maxDuration": 30
+    },
+    "api/login.js": {
+      "memory": 256,
+      "maxDuration": 20
+    },
+    "api/logout.js": {
+      "memory": 128,
+      "maxDuration": 10
     }
   }
 }

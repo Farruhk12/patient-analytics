@@ -217,31 +217,38 @@
       var password = document.getElementById('passwordInput').value;
       var errEl    = document.getElementById('loginError');
       var errText  = document.getElementById('loginErrorText');
+      var btn      = document.getElementById('loginBtn');
 
-      var result = Auth.login(loginVal, password);
+      btn.disabled = true;
+      Auth.login(loginVal, password).then(function(result) {
+        btn.disabled = false;
 
-      if (result.ok) {
-        window.location.href = 'index.html';
-        return;
-      }
+        if (result.ok) {
+          window.location.href = 'index.html';
+          return;
+        }
 
-      if (result.locked) {
-        showLockout();
-        return;
-      }
+        if (result.locked) {
+          showLockout();
+          return;
+        }
 
-      errEl.classList.add('show');
-      if (result.attemptsLeft === 0) {
-        errText.textContent = 'Вход заблокирован. Попробуйте через 15 минут.';
-        showLockout();
-      } else if (result.attemptsLeft !== undefined) {
-        errText.textContent = 'Неверный логин или пароль. Осталось попыток: ' + result.attemptsLeft;
-      } else {
-        errText.textContent = 'Неверный логин или пароль';
-      }
+        errEl.classList.add('show');
+        if (result.error && result.attemptsLeft === undefined) {
+          errText.textContent = result.error;
+        } else if (result.attemptsLeft === 0) {
+          errText.textContent = 'Вход заблокирован. Попробуйте через 15 минут.';
+          showLockout();
+        } else if (result.attemptsLeft !== undefined) {
+          errText.textContent = (result.error || 'Неверный логин или пароль') +
+            '. Осталось попыток: ' + result.attemptsLeft;
+        } else {
+          errText.textContent = result.error || 'Неверный логин или пароль';
+        }
 
-      document.getElementById('passwordInput').value = '';
-      document.getElementById('passwordInput').focus();
+        document.getElementById('passwordInput').value = '';
+        document.getElementById('passwordInput').focus();
+      });
     });
 
     ['loginInput', 'passwordInput'].forEach(function(id) {

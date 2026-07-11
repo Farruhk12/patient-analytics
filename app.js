@@ -877,18 +877,52 @@ function scrollToAiSection() {
   });
 }
 
-// ===== AI ANALYSIS (Gemini / DeepSeek) =====
+// ===== AI ANALYSIS (via /api/analyze — ключи только на сервере) =====
 var AI_CFG = window.APP_CONFIG || {};
 var GEMINI_MODEL = AI_CFG.GEMINI_MODEL || 'gemini-2.0-flash';
-var GEMINI_API_KEY = AI_CFG.GEMINI_API_KEY || '';
 var DEEPSEEK_MODEL = AI_CFG.DEEPSEEK_MODEL || 'deepseek-chat';
-var DEEPSEEK_API_KEY = AI_CFG.DEEPSEEK_API_KEY || '';
-// Провайдер: явный из конфига, иначе — тот, для которого есть ключ
-var AI_PROVIDER = (AI_CFG.AI_PROVIDER || '').toLowerCase();
-if (!AI_PROVIDER) {
-  AI_PROVIDER = DEEPSEEK_API_KEY ? 'deepseek' : 'gemini';
-}
+var AI_PROVIDER = (AI_CFG.AI_PROVIDER || 'deepseek').toLowerCase();
 var _aiAbort = null;
+
+function aiAuthHeaders() {
+  var h = { 'Content-Type': 'application/json' };
+  if (typeof Auth !== 'undefined' && Auth.getToken) {
+    var t = Auth.getToken();
+    if (t) h.Authorization = 'Bearer ' + t;
+  }
+  return h;
+}
+
+function callAiProxy(prompt, signal) {
+  return fetch('/api/analyze', {
+    method: 'POST',
+    credentials: 'include',
+    headers: aiAuthHeaders(),
+    signal: signal,
+    body: JSON.stringify({ prompt: prompt, provider: AI_PROVIDER })
+  }).then(function(resp) {
+    if (resp.status === 401) {
+      throw new Error('Сессия истекла — войдите снова');
+    }
+    return resp.json().then(function(data) {
+      if (!resp.ok) {
+        throw new Error((data && data.error) || ('Ошибка ' + resp.status));
+      }
+      if (!data || !data.text) throw new Error('Пустой ответ от AI');
+      return data.text;
+    }, function() {
+      throw new Error('Ошибка ' + resp.status);
+    });
+  });
+}
+
+function callDeepSeek(prompt, signal) {
+  return callAiProxy(prompt, signal);
+}
+
+function callGemini(prompt, signal) {
+  return callAiProxy(prompt, signal);
+}
 
 function showAiSection(deviations, patient, latestAnalysis) {
   var section = $('aiSection');
@@ -1064,78 +1098,6 @@ function requestAiAnalysis(deviations, patient, latestAnalysis) {
     scrollToAiSection();
     requestAiAnalysis(deviations, patient, latestAnalysis);
   };
-}
-
-// DeepSeek — OpenAI-совместимый Chat Completions API
-function callDeepSeek(prompt, signal) {
-  if (!DEEPSEEK_API_KEY) {
-    return Promise.reject(new Error('Не задан DEEPSEEK_API_KEY (добавьте в .env и пересоберите)'));
-  }
-  return fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
-    },
-    signal: signal,
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      temperature: 0.3,
-      max_tokens: 900,
-      messages: [
-        { role: 'system', content: 'Ты — аккуратный медицинский ассистент. Не ставишь диагнозов. Отвечаешь строго блоками по запросу пользователя.' },
-        { role: 'user', content: prompt }
-      ]
-    })
-  })
-  .then(function(resp) {
-    if (!resp.ok) {
-      return resp.json().then(function(err) {
-        throw new Error(err && err.error ? (err.error.message || err.error) : 'Ошибка ' + resp.status);
-      }, function() { throw new Error('Ошибка ' + resp.status); });
-    }
-    return resp.json();
-  })
-  .then(function(data) {
-    try {
-      return data.choices[0].message.content;
-    } catch (e) {
-      throw new Error('Пустой ответ от модели');
-    }
-  });
-}
-
-// Google Gemini — generateContent
-function callGemini(prompt, signal) {
-  if (!GEMINI_API_KEY) {
-    return Promise.reject(new Error('Не задан GEMINI_API_KEY (добавьте в .env и пересоберите)'));
-  }
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL +
-    ':generateContent?key=' + encodeURIComponent(GEMINI_API_KEY);
-  return fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: signal,
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.25, maxOutputTokens: 900 }
-    })
-  })
-  .then(function(resp) {
-    if (!resp.ok) {
-      return resp.json().then(function(err) {
-        throw new Error(err.error ? err.error.message : 'Ошибка ' + resp.status);
-      });
-    }
-    return resp.json();
-  })
-  .then(function(data) {
-    try {
-      return data.candidates[0].content.parts[0].text;
-    } catch (e) {
-      throw new Error('Пустой ответ от модели');
-    }
-  });
 }
 
 function renderAiResult(text) {

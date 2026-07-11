@@ -1,48 +1,51 @@
 /**
- * Vercel serverless: AI proxy — ключи остаются на сервере.
+ * Vercel serverless: AI proxy — ключи только на сервере.
  * POST /api/analyze  { prompt, provider?: 'deepseek'|'gemini' }
+ * Требует сессию (Authorization: Bearer <token> или cookie med_token).
  */
+var session = require('./_lib/session');
+
 module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     return res.end();
   }
   if (req.method !== 'POST') {
-    res.statusCode = 405;
-    return res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return session.sendJson(res, 405, { error: 'Method not allowed' });
   }
 
-  var body = req.body;
-  if (typeof body === 'string') {
-    try { body = JSON.parse(body); } catch (e) { body = {}; }
+  var user = null;
+  try {
+    user = session.requireSession(req);
+  } catch (e) {
+    return session.sendJson(res, 500, { error: e.message || 'Session misconfigured' });
   }
-  body = body || {};
+  if (!user) {
+    return session.sendJson(res, 401, { error: 'Требуется вход' });
+  }
+
+  var body = await session.readJsonBody(req);
   var prompt = body.prompt;
   if (!prompt || typeof prompt !== 'string') {
-    res.statusCode = 400;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: 'prompt required' }));
+    return session.sendJson(res, 400, { error: 'prompt required' });
+  }
+  if (prompt.length > 12000) {
+    return session.sendJson(res, 400, { error: 'prompt too long' });
   }
 
   var provider = (body.provider || process.env.AI_PROVIDER || 'deepseek').toLowerCase();
   try {
-    var text;
-    if (provider === 'gemini') {
-      text = await callGemini(prompt);
-    } else {
-      text = await callDeepSeek(prompt);
-    }
-    res.statusCode = 200;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ text: text }));
+    var text = provider === 'gemini'
+      ? await callGemini(prompt)
+      : await callDeepSeek(prompt);
+    return session.sendJson(res, 200, { text: text });
   } catch (err) {
-    res.statusCode = 502;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: err.message || 'AI error' }));
+    return session.sendJson(res, 502, { error: err.message || 'AI error' });
   }
 };
 

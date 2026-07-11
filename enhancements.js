@@ -411,7 +411,6 @@ function toggleAiHistoryPanel() {
 
 var _origBuildAiPrompt = typeof buildAiPrompt === 'function' ? buildAiPrompt : null;
 var _origRenderAi = typeof renderAiResult === 'function' ? renderAiResult : null;
-var _origCallDeepSeek = typeof callDeepSeek === 'function' ? callDeepSeek : null;
 
 if (_origBuildAiPrompt) {
   window.buildAiPrompt = function(deviations, patient, latestAnalysis) {
@@ -438,61 +437,6 @@ if (_origRenderAi) {
         saveAiHistoryEntry(text, { date: state.aiSelectedDate || '' });
       }
     }
-  };
-}
-
-// Prefer Vercel serverless proxy when available (hides API keys from browser)
-if (_origCallDeepSeek) {
-  window.callDeepSeek = function(prompt, signal) {
-    return fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: signal,
-      body: JSON.stringify({ prompt: prompt, provider: 'deepseek' })
-    }).then(function(resp) {
-      if (resp.status === 404 || resp.status === 405) {
-        return _origCallDeepSeek(prompt, signal);
-      }
-      if (!resp.ok) {
-        return resp.json().then(function(err) {
-          throw new Error((err && err.error) || ('Ошибка ' + resp.status));
-        }, function() { throw new Error('Ошибка ' + resp.status); });
-      }
-      return resp.json().then(function(data) {
-        if (!data || !data.text) throw new Error('Пустой ответ от прокси');
-        return data.text;
-      });
-    }).catch(function(err) {
-      if (err.name === 'AbortError') throw err;
-      // Local / Pages without API → fallback to direct key
-      return _origCallDeepSeek(prompt, signal);
-    });
-  };
-}
-
-if (typeof callGemini === 'function') {
-  var _origCallGemini = callGemini;
-  window.callGemini = function(prompt, signal) {
-    return fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: signal,
-      body: JSON.stringify({ prompt: prompt, provider: 'gemini' })
-    }).then(function(resp) {
-      if (resp.status === 404 || resp.status === 405) return _origCallGemini(prompt, signal);
-      if (!resp.ok) {
-        return resp.json().then(function(err) {
-          throw new Error((err && err.error) || ('Ошибка ' + resp.status));
-        }, function() { throw new Error('Ошибка ' + resp.status); });
-      }
-      return resp.json().then(function(data) {
-        if (!data || !data.text) throw new Error('Пустой ответ от прокси');
-        return data.text;
-      });
-    }).catch(function(err) {
-      if (err.name === 'AbortError') throw err;
-      return _origCallGemini(prompt, signal);
-    });
   };
 }
 

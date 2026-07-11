@@ -1,23 +1,21 @@
 // ============================================================
-// MedAnalytics — Модуль аутентификации
-// Учётные данные администратора берутся из config.js (APP_CONFIG)
+// MedAnalytics — Аутентификация
+// Вход через /api/login (сервер). Секреты не хранятся в браузере.
 // ============================================================
 
 var Auth = (function() {
 
-  // ── Конфигурация ───────────────────────────────────────────
   var SESSION_KEY   = 'med_session';
   var PATIENTS_KEY  = 'med_patients_cache';
   var ATTEMPTS_KEY  = 'med_login_attempts';
-  var MAX_ATTEMPTS  = 5;   // блокировка после N неверных попыток
-  var LOCKOUT_MS    = 15 * 60 * 1000; // 15 минут
+  var MAX_ATTEMPTS  = 5;
+  var LOCKOUT_MS    = 15 * 60 * 1000;
 
-  // ── Счётчик неверных попыток (rate-limiting) ───────────────
   function getAttempts() {
     try {
       var raw = sessionStorage.getItem(ATTEMPTS_KEY);
       return raw ? JSON.parse(raw) : { count: 0, since: Date.now() };
-    } catch(e) { return { count: 0, since: Date.now() }; }
+    } catch (e) { return { count: 0, since: Date.now() }; }
   }
 
   function recordFailedAttempt() {
@@ -45,28 +43,21 @@ var Auth = (function() {
     return Math.ceil((LOCKOUT_MS - elapsed) / 60000);
   }
 
-  // ── Учётные данные администратора из config.js ─────────────
-  function getAdminCredentials() {
-    var cfg = window.APP_CONFIG || {};
-    return {
-      login:    String(cfg.ADMIN_LOGIN != null ? cfg.ADMIN_LOGIN : 'admin').trim(),
-      password: String(cfg.ADMIN_PASSWORD != null ? cfg.ADMIN_PASSWORD : '').trim()
-    };
-  }
-
-  // ── Сессия ─────────────────────────────────────────────────
   function getSession() {
     try {
       var raw = sessionStorage.getItem(SESSION_KEY);
       if (!raw) return null;
       var s = JSON.parse(raw);
-      // Проверяем срок сессии (8 часов)
       if (!s._ts || Date.now() - s._ts > 8 * 3600 * 1000) {
         clearSession();
         return null;
       }
+      if (!s.token) {
+        clearSession();
+        return null;
+      }
       return s;
-    } catch(e) { return null; }
+    } catch (e) { return null; }
   }
 
   function setSession(data) {
@@ -78,70 +69,104 @@ var Auth = (function() {
     sessionStorage.removeItem(SESSION_KEY);
   }
 
-  // ── Кэш пользователей ──────────────────────────────────────
+  function getToken() {
+    var s = getSession();
+    return s && s.token ? s.token : '';
+  }
+
+  function authHeaders() {
+    var t = getToken();
+    var h = { 'Content-Type': 'application/json' };
+    if (t) h.Authorization = 'Bearer ' + t;
+    return h;
+  }
+
   function getPatientsAuth() {
     try {
       var raw = sessionStorage.getItem(PATIENTS_KEY);
       return raw ? JSON.parse(raw) : [];
-    } catch(e) { return []; }
+    } catch (e) { return []; }
   }
 
   function setPatientsAuth(list) {
     sessionStorage.setItem(PATIENTS_KEY, JSON.stringify(list));
   }
 
-  // ── Вход ───────────────────────────────────────────────────
+  /**
+   * Асинхронный вход через /api/login.
+   * @returns {Promise<{ok:boolean, role?:string, locked?:boolean, minutes?:number, attemptsLeft?:number, error?:string}>}
+   */
   function login(loginVal, password) {
     if (isLockedOut()) {
-      return { ok: false, locked: true, minutes: lockoutRemaining() };
+      return Promise.resolve({ ok: false, locked: true, minutes: lockoutRemaining() });
     }
 
-    // Санитизация входных данных
     loginVal = String(loginVal || '').trim().slice(0, 64);
     password = String(password || '').trim().slice(0, 128);
 
     if (!loginVal || !password) {
-      return { ok: false };
+      return Promise.resolve({ ok: false, error: 'Укажите логин и пароль' });
     }
 
-    var admin = getAdminCredentials();
-
-    // Проверяем администратора
-    if (loginVal === admin.login && password === admin.password) {
-      clearAttempts();
-      setSession({ role: 'admin', name: 'Администратор', login: loginVal });
-      return { ok: true, role: 'admin' };
-    }
-
-    // Проверяем пользователей
-    var users = getPatientsAuth();
-    for (var i = 0; i < users.length; i++) {
-      var p = users[i];
-      if (p.login && p.login === loginVal && p.password && p.password === password) {
-        clearAttempts();
-        setSession({
-          role: 'user',
-          name: p.name,
-          login: loginVal,
-          accessList: p.accessList || []
-        });
-        return { ok: true, role: 'user' };
+    return fetch('/api/login', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: loginVal, password: password })
+    }).then(function(resp) {
+      return resp.json().then(function(data) {
+        return { resp: resp, data: data || {} };
+      }, function() {
+        return { resp: resp, data: {} };
+      });
+    }).then(function(r) {
+      if (r.resp.status === 404) {
+        return {
+          ok: false,
+          error: 'API входа недоступен. Запустите через Vercel (vercel dev / деплой), не через статический serve.'
+        };
       }
-    }
+      if (!r.resp.ok || !r.data.ok || !r.data.token) {
+        recordFailedAttempt();
+        var a = getAttempts();
+        var remaining = MAX_ATTEMPTS - a.count;
+        return {
+          ok: false,
+          attemptsLeft: remaining > 0 ? remaining : 0,
+          error: (r.data && r.data.error) || 'Неверный логин или пароль'
+        };
+      }
 
-    recordFailedAttempt();
-    var a = getAttempts();
-    var remaining = MAX_ATTEMPTS - a.count;
-    return { ok: false, attemptsLeft: remaining > 0 ? remaining : 0 };
+      clearAttempts();
+      var user = r.data.user || {};
+      setSession({
+        role: user.role || 'user',
+        name: user.name || loginVal,
+        login: user.login || loginVal,
+        accessList: user.accessList || [],
+        token: r.data.token
+      });
+      return { ok: true, role: user.role || 'user' };
+    }).catch(function(err) {
+      return {
+        ok: false,
+        error: 'Сеть: ' + (err.message || 'не удалось связаться с /api/login')
+      };
+    });
   }
 
-  // ── Выход ──────────────────────────────────────────────────
   function logout() {
-    clearSession();
-    window.location.href = 'login.html';
+    var headers = authHeaders();
+    fetch('/api/logout', {
+      method: 'POST',
+      credentials: 'include',
+      headers: headers
+    }).catch(function() { /* ignore */ }).then(function() {
+      clearSession();
+      window.location.href = 'login.html';
+    });
   }
 
-  // ── Контроль доступа ───────────────────────────────────────
   function canViewPatient(patientName) {
     var s = getSession();
     if (!s) return false;
@@ -160,7 +185,6 @@ var Auth = (function() {
     return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
   }
 
-  // ── Управление доступом (только для админа) ────────────────
   function updatePatientAccess(patientName, newAccessList) {
     var s = getSession();
     if (!s || s.role !== 'admin') return false;
@@ -198,6 +222,8 @@ var Auth = (function() {
 
   return {
     getSession:               getSession,
+    getToken:                 getToken,
+    authHeaders:              authHeaders,
     login:                    login,
     logout:                   logout,
     canViewPatient:           canViewPatient,
