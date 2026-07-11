@@ -50,6 +50,7 @@ var staticFiles = [
   'enhancements.js',
   'auth.js',
   'norms.js',
+  'clinical.js',
   'style.css',
   'manifest.json',
   'google-apps-script.js',

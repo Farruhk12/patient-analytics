@@ -40,7 +40,8 @@ const state = {
   aiSelectedDate: null,
   lastDataAt: null,
   lastAiRaw: '',
-  patientNotes: {}
+  patientNotes: {},
+  lastReport: null
 };
 
 // Значение показателя по ключу с учётом обратной совместимости:
@@ -610,6 +611,10 @@ function renderDeviationsReport(patient) {
     el.classList.add('hidden');
     $('deviationsList').classList.add('hidden');
     $('deviationsList').innerHTML = '';
+    ['panicBanner', 'systemSummary', 'syndromeSection'].forEach(function(id) {
+      var n = $(id);
+      if (n) { n.classList.add('hidden'); n.innerHTML = ''; }
+    });
     return;
   }
 
@@ -635,12 +640,17 @@ function renderDeviationsReport(patient) {
       (i === selectedIdx ? ' selected' : '') + '>' + esc(fmtDate(a.testDate)) + '</option>';
   }).join('');
 
+  // Клинический контекст пациента (диагнозы/препараты/беременность/цикл) и цели терапии
+  var clinicalCtx = (typeof CLINICAL !== 'undefined') ? CLINICAL.fullContext(patient) : { age: patient.age, gender: gender };
+  var targets = (typeof CLINICAL !== 'undefined') ? CLINICAL.getTargets(clinicalCtx) : {};
+
   // Собираем отклонения
   var highs = [];
   var lows = [];
   var suspicious = [];
   var normals = 0;
   var noNorm = 0;
+  var readings = []; // для panic / синдромов / сводки по системам
 
   var keys = Object.keys(latest.values);
   keys.forEach(function(indKey) {
@@ -651,37 +661,59 @@ function renderDeviationsReport(patient) {
     var normName = ind ? ind.name : indKey;         // для поиска нормы — чистое имя
     var indName = ind ? indDisplayName(ind) : indKey; // для отображения — с категорией
     var category = ind ? ind.category : '';
+    var unit = ind && ind.unit ? ind.unit : '';
 
     var parsed = parseMedicalValue(val);
     if (parsed.num === null) return; // качественные/титры не сравниваем с числовой нормой
     var num = parsed.num;
 
     var norm = getNorm(normName, gender, category);
+
+    // Возрастные / физиологические референсы (дети, беременность, фаза цикла)
+    var normNote = '';
+    if (typeof CLINICAL !== 'undefined') {
+      var refined = CLINICAL.refineNorm(norm, normName, clinicalCtx);
+      if (refined.norm) norm = refined.norm;
+      normNote = refined.note || '';
+    }
+
     if (!norm) {
+      // Значение без числовой нормы — учитываем только для panic-проверки
+      readings.push({ name: normName, display: indName, category: category, num: num, unit: unit, norm: null, cls: null, note: normNote });
       noNorm++;
       return;
     }
 
     // Классифицируем ВСЕГДА — реальную патологию нельзя скрывать.
     var cls = classifyValue(num, norm[0], norm[1]);
+    var sev = typeof deviationSeverity === 'function' ? deviationSeverity(num, norm[0], norm[1]) : 'moderate';
+
+    readings.push({ name: normName, display: indName, category: category, num: num, unit: unit, norm: norm, cls: cls, severity: sev, note: normNote });
+
+    // Личная динамика (delta-check) — значимое изменение относительно прошлого
+    var deltaInfo = null;
+    if (typeof CLINICAL !== 'undefined') {
+      var prevVals = findPrevValues(analysesAsc, indKey, normName, latest.testDate);
+      if (prevVals && prevVals.length) {
+        deltaInfo = CLINICAL.deltaCheck(normName, num, prevVals[prevVals.length - 1].value);
+      }
+    }
+
     var baseItem = {
       key: indKey,
       name: indName,
       value: num,
       norm: norm,
       category: category || (ind ? ind.category : '') || 'Другое',
-      unit: ind && ind.unit ? ind.unit : ''
+      unit: unit,
+      note: normNote,
+      delta: deltaInfo,
+      target: targets[normName] || null
     };
     if (cls === 'high') {
-      highs.push(Object.assign({}, baseItem, {
-        type: 'high',
-        severity: typeof deviationSeverity === 'function' ? deviationSeverity(num, norm[0], norm[1]) : 'moderate'
-      }));
+      highs.push(Object.assign({}, baseItem, { type: 'high', severity: sev }));
     } else if (cls === 'low') {
-      lows.push(Object.assign({}, baseItem, {
-        type: 'low',
-        severity: typeof deviationSeverity === 'function' ? deviationSeverity(num, norm[0], norm[1]) : 'moderate'
-      }));
+      lows.push(Object.assign({}, baseItem, { type: 'low', severity: sev }));
     } else {
       normals++;
     }
@@ -690,6 +722,10 @@ function renderDeviationsReport(patient) {
     var plaus = checkPlausibility(num, norm);
     if (plaus.suspicious) {
       suspicious.push({ name: indName, value: num, norm: norm, reason: plaus.reason });
+    } else if (typeof CLINICAL !== 'undefined') {
+      // Подсказка по единицам измерения (mg/dl ↔ ммоль/л и т.п.)
+      var unitHint = CLINICAL.suggestUnitIssue(normName, num, norm);
+      if (unitHint) suspicious.push({ name: indName, value: num, norm: norm, reason: unitHint });
     }
   });
 
@@ -749,6 +785,24 @@ function renderDeviationsReport(patient) {
   var listEl = $('deviationsList');
   var listHtml = '';
 
+  // Доп. клинические бейджи для строки отклонения (динамика, цель, уточнённая норма)
+  function clinicalBadges(item) {
+    var b = '';
+    if (item.delta && item.delta.significant) {
+      var d = item.delta;
+      var arrow = d.dir === 'up' ? '↑' : '↓';
+      b += '<span class="dev-badge dev-badge--delta" title="Значимое изменение относительно прошлого анализа">Δ ' +
+        arrow + Math.abs(d.pct) + '%</span>';
+    }
+    if (item.target) {
+      b += '<span class="dev-badge dev-badge--target" title="Целевое значение по состоянию">' + esc(item.target.label) + '</span>';
+    }
+    if (item.note) {
+      b += '<span class="dev-badge dev-badge--note" title="Уточнённая норма">' + esc(item.note) + '</span>';
+    }
+    return b;
+  }
+
   if (totalDeviated > 0) {
     listHtml += '<div class="deviations-list-label">Список отклонений</div>';
     listHtml += '<div class="dev-items">';
@@ -766,6 +820,7 @@ function renderDeviationsReport(patient) {
       listHtml += '<span class="dev-item-value">' + formatValue(item.value) + '</span>';
       listHtml += '<span class="dev-item-norm">норма: ' + item.norm[0] + '–' + item.norm[1] + '</span>';
       if (pct > 0) listHtml += '<span class="dev-item-pct">+' + pct + '%</span>';
+      listHtml += clinicalBadges(item);
       listHtml += '</div>';
       listHtml += '</div>';
       listHtml += '</div>';
@@ -784,6 +839,7 @@ function renderDeviationsReport(patient) {
       listHtml += '<span class="dev-item-value">' + formatValue(item.value) + '</span>';
       listHtml += '<span class="dev-item-norm">норма: ' + item.norm[0] + '–' + item.norm[1] + '</span>';
       if (pct > 0) listHtml += '<span class="dev-item-pct">-' + pct + '%</span>';
+      listHtml += clinicalBadges(item);
       listHtml += '</div>';
       listHtml += '</div>';
       listHtml += '</div>';
@@ -816,6 +872,30 @@ function renderDeviationsReport(patient) {
 
   listEl.innerHTML = listHtml;
   listEl.classList.remove('hidden');
+
+  // ── Клинические расширения: panic-values, синдромы, сводка по системам ──
+  if (typeof CLINICAL !== 'undefined') {
+    var panic = CLINICAL.checkPanic(readings);
+    var syndromes = CLINICAL.detectSyndromes(readings, clinicalCtx);
+    var systemSummary = CLINICAL.buildSystemSummary(readings);
+    state.lastReport = {
+      patient: patient,
+      latest: latest,
+      dateStr: latestDate,
+      lab: [latest.country, latest.lab].filter(Boolean).join(' · '),
+      gender: gender,
+      ctx: clinicalCtx,
+      targets: targets,
+      readings: readings,
+      deviations: highs.concat(lows),
+      panic: panic,
+      syndromes: syndromes,
+      systemSummary: systemSummary
+    };
+    if (typeof renderClinicalExtras === 'function') {
+      try { renderClinicalExtras(state.lastReport); } catch (e) {}
+    }
+  }
 
   // Скрываем AI секцию при смене пациента / перерисовке
   $('aiSection').classList.add('hidden');
@@ -1020,11 +1100,42 @@ function buildAiPrompt(deviations, patient, latestAnalysis) {
     return d.name + ' (' + deviationPctLabel(d) + ')';
   }).join('; ');
 
+  // ── Клинический контекст и подсказки движка (feature 2/3/5/7) ──
+  var report = state.lastReport;
+  var sameReport = report && report.patient && report.patient.name === patient.name;
+  var contextLine = '';
+  var clinicalBlock = '';
+  if (typeof CLINICAL !== 'undefined') {
+    var ctx = sameReport ? report.ctx : CLINICAL.fullContext(patient);
+    var cdesc = CLINICAL.describeContext(ctx);
+    if (cdesc) contextLine = 'Клинический контекст: ' + cdesc + '\n';
+
+    if (sameReport) {
+      if (report.panic && report.panic.length) {
+        clinicalBlock += 'КРИТИЧЕСКИЕ значения (panic): ' + report.panic.map(function(p) {
+          return p.name + ' ' + p.value + ' (' + (p.dir === 'high' ? '>' : '<') + ' порога ' + p.threshold + ')';
+        }).join('; ') + '.\n';
+      }
+      if (report.syndromes && report.syndromes.length) {
+        clinicalBlock += 'Предварительно выявленные паттерны (учти, но перепроверь по данным): ' +
+          report.syndromes.map(function(s) { return s.title; }).join('; ') + '.\n';
+      }
+      var tkeys = report.targets ? Object.keys(report.targets) : [];
+      if (tkeys.length) {
+        clinicalBlock += 'Целевые значения по состоянию пациента: ' + tkeys.map(function(k) {
+          return k + ' — ' + report.targets[k].label;
+        }).join('; ') + '.\n';
+      }
+    }
+  }
+
   return 'Ты — аккуратный медицинский ассистент для пациента (не врач). ' +
     'Не ставь диагнозов. Пиши конкретно по данным, без общих фраз.\n\n' +
     'Пациент: пол ' + gender + ', возраст ' + age + ' лет.\n' +
+    contextLine +
     'Последний анализ: ' + latestDate + (labMeta ? ' (' + labMeta + ')' : '') + '.\n' +
-    'Всего отклонений: ' + sorted.length + '. Самые выраженные: ' + topHint + '.\n\n' +
+    'Всего отклонений: ' + sorted.length + '. Самые выраженные: ' + topHint + '.\n' +
+    (clinicalBlock ? clinicalBlock : '') + '\n' +
     'Отклонения (уже отсортированы по выраженности, с динамикой):\n' +
     lines.join('\n') + '\n\n' +
     'Ответь СТРОГО четырьмя блоками (метка на отдельной строке, пункты с «• »):\n\n' +

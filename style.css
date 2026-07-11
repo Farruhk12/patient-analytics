@@ -1276,3 +1276,134 @@ svg:not([fill="currentColor"]) {
   .deviations-list { max-height: none; overflow: visible; }
   body { background: #fff; color: #000; overflow: visible; }
 }
+
+/* ============================================================
+   CLINICAL ENGINE (clinical.js) — panic, системы, синдромы, контекст
+   ============================================================ */
+
+/* ── Panic-values баннер ── */
+.panic-banner {
+  background: var(--red-light);
+  border: 1px solid rgba(225,29,72,.35);
+  border-left: 4px solid var(--red);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.panic-head {
+  display: flex; align-items: center; gap: 9px;
+  font-family: var(--font-display); font-weight: 800; font-size: 14.5px;
+  color: var(--red);
+}
+.panic-head svg { width: 20px; height: 20px; flex-shrink: 0; }
+.panic-list { margin: 9px 0 6px; padding-left: 28px; list-style: disc; }
+.panic-list li { font-size: 13.5px; color: var(--text); margin: 3px 0; }
+.panic-th { color: var(--red); font-size: 12px; }
+.panic-note { font-size: 11.5px; color: var(--text-2); padding-left: 28px; }
+
+/* ── Сводка по системам органов ── */
+.system-summary { margin-bottom: 18px; }
+.sys-summary-label,
+.syndrome-label {
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  letter-spacing: .4px; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 10px; display: flex; align-items: center; gap: 7px;
+}
+.syndrome-label svg { width: 15px; height: 15px; stroke: var(--text-3); }
+.sys-chips {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 9px;
+}
+.sys-chip {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 9px 12px;
+  box-shadow: var(--shadow-xs);
+}
+.sys-chip-icon {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-2);
+}
+.sys-chip-icon svg { width: 17px; height: 17px; }
+.sys-chip-name { font-size: 13px; font-weight: 700; color: var(--text); }
+.sys-chip-stat { font-size: 11.5px; color: var(--text-2); margin-top: 1px; }
+.sys-chip--ok    .sys-chip-icon { background: var(--green-light); color: var(--green); }
+.sys-chip--warn  { border-color: rgba(217,118,6,.4); }
+.sys-chip--warn  .sys-chip-icon { background: var(--amber-light); color: var(--amber); }
+.sys-chip--alert { border-color: rgba(225,29,72,.45); }
+.sys-chip--alert .sys-chip-icon { background: var(--red-light); color: var(--red); }
+.sys-chip--alert .sys-chip-stat { color: var(--red); font-weight: 600; }
+
+/* ── Синдромальные карточки ── */
+.syndrome-section { margin: 8px 0 18px; }
+.syndrome-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.syndrome-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-left: 3px solid var(--text-3);
+  border-radius: var(--radius); padding: 11px 14px;
+  box-shadow: var(--shadow-xs);
+}
+.syndrome-card--info  { border-left-color: var(--blue); }
+.syndrome-card--warn  { border-left-color: var(--amber); }
+.syndrome-card--alert { border-left-color: var(--red); }
+.syndrome-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.syndrome-sys {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--brand-1); background: var(--green-light);
+  padding: 2px 7px; border-radius: var(--radius-full);
+}
+.syndrome-title { font-family: var(--font-display); font-size: 13.5px; font-weight: 700; color: var(--text); }
+.syndrome-detail { font-size: 12.5px; color: var(--text-2); margin-top: 6px; line-height: 1.5; }
+.syndrome-note { font-size: 11.5px; color: var(--text-3); margin-top: 9px; }
+
+/* ── Бейджи в списке отклонений (delta / target / note) ── */
+.dev-badge {
+  font-size: 11px; font-weight: 600; padding: 2px 8px;
+  border-radius: var(--radius-full); white-space: nowrap;
+}
+.dev-badge--delta  { background: var(--blue-light); color: var(--blue-d); }
+.dev-badge--target { background: var(--green-light); color: var(--brand-1); }
+.dev-badge--note   { background: var(--bg-2); color: var(--text-2); }
+
+/* ── Кнопка «Отчёт для врача» ── */
+.dev-report-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--text-2); font-size: 12.5px; font-weight: 600;
+  padding: 7px 12px; border-radius: var(--radius-sm); cursor: pointer;
+  transition: var(--transition); margin-left: 8px;
+}
+.dev-report-btn:hover { border-color: var(--brand-2); color: var(--brand-1); box-shadow: var(--shadow-xs); }
+.dev-report-btn svg { width: 15px; height: 15px; }
+
+/* ── Форма клинического контекста ── */
+.clinical-context { margin-top: 14px; }
+.clin-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px;
+  align-items: end;
+}
+.clin-field { display: flex; flex-direction: column; gap: 5px; }
+.clin-field--full { grid-column: 1 / -1; }
+.clin-field--check { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
+.clin-field--sm { max-width: 140px; }
+.clin-label { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.clin-hint { font-weight: 400; color: var(--text-3); font-size: 11px; }
+.clin-input {
+  width: 100%; box-sizing: border-box;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 10px;
+  font-size: 13px; color: var(--text); font-family: var(--font);
+  transition: var(--transition);
+}
+.clin-input:focus { outline: none; border-color: var(--brand-2); box-shadow: 0 0 0 3px rgba(20,184,166,.12); }
+textarea.clin-input { resize: vertical; min-height: 40px; }
+
+@media (max-width: 640px) {
+  .clin-grid { grid-template-columns: 1fr; }
+  .clin-field--sm { max-width: none; }
+}
