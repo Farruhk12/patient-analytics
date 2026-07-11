@@ -88,7 +88,22 @@ console.log('GEMINI_API_KEY задан=' + (cfg.GEMINI_API_KEY ? 'ДА' : 'НЕ�
 console.log('DEEPSEEK_API_KEY задан=' + (cfg.DEEPSEEK_API_KEY ? 'ДА' : 'НЕТ'));
 console.log('==========================');
 
-if (!cfg.ADMIN_PASSWORD) {
-  console.error('ОШИБКА: ADMIN_PASSWORD пустой! Добавьте переменную окружения ADMIN_PASSWORD в Vercel и передеплойте.');
+var missing = [];
+if (!cfg.ADMIN_PASSWORD) missing.push('ADMIN_PASSWORD');
+if (!cfg.SCRIPT_URL) missing.push('SCRIPT_URL');
+
+if (missing.length) {
+  console.error('');
+  console.error('ОШИБКА: не заданы переменные окружения: ' + missing.join(', '));
+  console.error('Vercel → Project → Settings → Environment Variables → добавьте для Production:');
+  console.error('  SCRIPT_URL, ADMIN_LOGIN, ADMIN_PASSWORD, AI_PROVIDER, DEEPSEEK_API_KEY, DEEPSEEK_MODEL');
+  console.error('Затем Redeploy. Значения возьмите из локального .env (его в git не коммитим).');
   process.exit(1);
+}
+
+if (cfg.AI_PROVIDER === 'deepseek' && !cfg.DEEPSEEK_API_KEY) {
+  console.warn('ПРЕДУПРЕЖДЕНИЕ: AI_PROVIDER=deepseek, но DEEPSEEK_API_KEY пуст — AI-анализ на сайте не заработает.');
+}
+if (cfg.AI_PROVIDER === 'gemini' && !cfg.GEMINI_API_KEY) {
+  console.warn('ПРЕДУПРЕЖДЕНИЕ: AI_PROVIDER=gemini, но GEMINI_API_KEY пуст — AI-анализ на сайте не заработает.');
 }
