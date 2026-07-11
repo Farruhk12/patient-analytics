@@ -24,7 +24,23 @@ const state = {
   charts: [],
   dashCharts: [],
   tableFilters: { category: '', country: '', lab: '', dateFrom: '', dateTo: '' },
-  tableView: { hideEmptyCols: true, onlyDeviations: false, filtersOpen: false, infoExpanded: false }
+  tableView: {
+    hideEmptyCols: true,
+    onlyDeviations: false,
+    filtersOpen: false,
+    infoExpanded: false,
+    showTrends: true,
+    compareMode: false,
+    onlyFavorites: false,
+    search: ''
+  },
+  compareDates: { a: '', b: '' },
+  favorites: {},
+  aiMode: 'patient',
+  aiSelectedDate: null,
+  lastDataAt: null,
+  lastAiRaw: '',
+  patientNotes: {}
 };
 
 // Значение показателя по ключу с учётом обратной совместимости:
@@ -124,6 +140,34 @@ function setupEventListeners() {
     state.tableView.onlyDeviations = $('onlyDeviations').checked;
     renderFilteredTable();
   });
+  $('showTrends').addEventListener('change', function() {
+    state.tableView.showTrends = $('showTrends').checked;
+    renderFilteredTable();
+  });
+  $('onlyFavorites').addEventListener('change', function() {
+    state.tableView.onlyFavorites = $('onlyFavorites').checked;
+    renderFilteredTable();
+  });
+  $('indicatorSearch').addEventListener('input', function(e) {
+    state.tableView.search = (e.target.value || '').trim().toLowerCase();
+    renderFilteredTable();
+  });
+  $('compareToggleBtn').addEventListener('click', toggleCompareMode);
+  $('compareDateA').addEventListener('change', function() {
+    state.compareDates.a = $('compareDateA').value;
+    renderFilteredTable();
+  });
+  $('compareDateB').addEventListener('change', function() {
+    state.compareDates.b = $('compareDateB').value;
+    renderFilteredTable();
+  });
+  $('exportCsvBtn').addEventListener('click', exportTableCsv);
+  $('printBtn').addEventListener('click', printPatientSummary);
+
+  $('aiModePatient').addEventListener('click', function() { setAiMode('patient'); });
+  $('aiModeDoctor').addEventListener('click', function() { setAiMode('doctor'); });
+  $('aiCopyBtn').addEventListener('click', copyAiResult);
+  $('aiHistoryBtn').addEventListener('click', toggleAiHistoryPanel);
 }
 
 function toggleSidebar() {
@@ -201,9 +245,11 @@ async function fetchData() {
     syncPatientsAuth(state.patients);
 
     updateStatus('connected');
+    state.lastDataAt = new Date();
     $('refreshBtn').disabled = false;
     renderPatientList();
     showHomeView();
+    updateDataStamp();
 
   } catch (err) {
     console.error('Ошибка загрузки:', err);
@@ -351,6 +397,16 @@ function selectPatient(name) {
 
   // Reset table filters
   state.tableFilters = { category: '', country: '', lab: '', dateFrom: '', dateTo: '' };
+  state.tableView.search = '';
+  state.tableView.compareMode = false;
+  state.tableView.onlyFavorites = false;
+  state.compareDates = { a: '', b: '' };
+  state.aiSelectedDate = null;
+  loadPatientExtras(name);
+  if ($('indicatorSearch')) $('indicatorSearch').value = '';
+  if ($('onlyFavorites')) $('onlyFavorites').checked = false;
+  if ($('compareBar')) $('compareBar').classList.add('hidden');
+  if ($('compareToggleBtn')) $('compareToggleBtn').classList.remove('active');
 
   hideAllViews();
   $('patientView').classList.remove('hidden');
@@ -420,8 +476,8 @@ function renderVitalTile(label, unit, history, warnHigh, warnLow) {
     var pct  = prev.value !== 0 ? Math.round(Math.abs(diff) / prev.value * 100) : 0;
     var dir  = diff > 0 ? 'up' : 'down';
     var arrow = diff > 0
-      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>'
-      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="18 15 12 9 6 15"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="6 9 12 15 18 9"/></svg>';
     deltaHtml = '<span class="vital-delta vital-delta--' + dir + '">' + arrow + pct + '%</span>';
   }
 
@@ -445,8 +501,8 @@ function renderPatientInfo(patient) {
   var analyses = getPatientAnalyses(patient.name);
 
   var genderIcon = patient.gender === 'Жен'
-    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="5"/><path d="M12 13v8"/><path d="M9 18h6"/></svg>'
-    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="14" r="5"/><path d="M19 5l-5.4 5.4"/><path d="M15 5h4v4"/></svg>';
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="5"/><path d="M12 13v8"/><path d="M9 18h6"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="14" r="5"/><path d="M19 5l-5.4 5.4"/><path d="M15 5h4v4"/></svg>';
   var genderClass = patient.gender === 'Жен' ? 'info-gender--f' : 'info-gender--m';
 
   // ── Демография ──
@@ -530,13 +586,13 @@ function renderPatientInfo(patient) {
 
 // Иконки SVG для демографии
 function iconCalendar() {
-  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
 }
 function iconAge() {
-  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
 }
 function iconBlood() {
-  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6 9 4 13 4 16a8 8 0 0016 0c0-3-2-7-8-14z"/></svg>';
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2C6 9 4 13 4 16a8 8 0 0016 0c0-3-2-7-8-14z"/></svg>';
 }
 
 // ===== DEVIATIONS MINI-REPORT =====
@@ -551,10 +607,27 @@ function renderDeviationsReport(patient) {
     return;
   }
 
-  // Берём последний анализ (самую свежую дату)
-  var latest = analyses[analyses.length - 1];
+  // Берём выбранный или последний анализ
+  var analysesAsc = analyses.slice();
+  var selectedIdx = analysesAsc.length - 1;
+  if (state.aiSelectedDate) {
+    for (var di = 0; di < analysesAsc.length; di++) {
+      if (String(analysesAsc[di].testDate) === String(state.aiSelectedDate)) {
+        selectedIdx = di;
+        break;
+      }
+    }
+  }
+  var latest = analysesAsc[selectedIdx];
+  state.aiSelectedDate = latest.testDate;
   var latestDate = fmtDate(latest.testDate);
   var gender = patient.gender || '';
+
+  // Date options for AI / report
+  var dateOptions = analysesAsc.map(function(a, i) {
+    return '<option value="' + escapeAttr(String(a.testDate)) + '"' +
+      (i === selectedIdx ? ' selected' : '') + '>' + esc(fmtDate(a.testDate)) + '</option>';
+  }).join('');
 
   // Собираем отклонения
   var highs = [];
@@ -594,9 +667,15 @@ function renderDeviationsReport(patient) {
       unit: ind && ind.unit ? ind.unit : ''
     };
     if (cls === 'high') {
-      highs.push(Object.assign({}, baseItem, { type: 'high' }));
+      highs.push(Object.assign({}, baseItem, {
+        type: 'high',
+        severity: typeof deviationSeverity === 'function' ? deviationSeverity(num, norm[0], norm[1]) : 'moderate'
+      }));
     } else if (cls === 'low') {
-      lows.push(Object.assign({}, baseItem, { type: 'low' }));
+      lows.push(Object.assign({}, baseItem, {
+        type: 'low',
+        severity: typeof deviationSeverity === 'function' ? deviationSeverity(num, norm[0], norm[1]) : 'moderate'
+      }));
     } else {
       normals++;
     }
@@ -625,9 +704,10 @@ function renderDeviationsReport(patient) {
   var html = '';
   html += '<div class="dev-header">';
   html += '<div class="dev-header-left">';
-  html += '<svg class="dev-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>';
+  html += '<svg class="dev-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>';
   html += '<div>';
-  html += '<div class="dev-title">Последний анализ — ' + esc(latestDate) + '</div>';
+  html += '<div class="dev-title">Анализ — ' +
+    '<select id="devDateSelect" class="dev-date-select">' + dateOptions + '</select></div>';
   html += '<div class="dev-subtitle">Проверено ' + totalChecked + ' показател' + pluralEnd(totalChecked) + ' с известной нормой</div>';
   html += '</div>';
   html += '</div>';
@@ -649,7 +729,7 @@ function renderDeviationsReport(patient) {
   html += '</div>';
   if (totalDeviated > 0) {
     html += '<button type="button" class="dev-ai-btn" id="devAiBtn">';
-    html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 014 4v1a1 1 0 001 1h1a4 4 0 010 8h-1a1 1 0 00-1 1v1a4 4 0 01-8 0v-1a1 1 0 00-1-1H6a4 4 0 010-8h1a1 1 0 001-1V6a4 4 0 014-4z"/><circle cx="12" cy="12" r="2"/></svg>';
+    html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a4 4 0 014 4v1a1 1 0 001 1h1a4 4 0 010 8h-1a1 1 0 00-1 1v1a4 4 0 01-8 0v-1a1 1 0 00-1-1H6a4 4 0 010-8h1a1 1 0 001-1V6a4 4 0 014-4z"/><circle cx="12" cy="12" r="2"/></svg>';
     html += '<span class="dev-ai-label">AI-анализ</span>';
     html += '</button>';
   }
@@ -669,10 +749,13 @@ function renderDeviationsReport(patient) {
 
     highs.forEach(function(item) {
       var pct = item.norm[1] !== 0 ? Math.round((item.value - item.norm[1]) / item.norm[1] * 100) : 0;
-      listHtml += '<div class="dev-item dev-item--high">';
+      var sev = item.severity || 'moderate';
+      listHtml += '<div class="dev-item dev-item--high dev-sev--' + sev + '">';
       listHtml += '<div class="dev-item-icon">▲</div>';
       listHtml += '<div class="dev-item-body">';
-      listHtml += '<div class="dev-item-name">' + esc(item.name) + '</div>';
+      listHtml += '<div class="dev-item-name">' + esc(item.name) +
+        (sev === 'severe' ? ' <span class="sev-badge sev-badge--severe">выражено</span>' :
+         sev === 'mild' ? ' <span class="sev-badge sev-badge--mild">слабо</span>' : '') + '</div>';
       listHtml += '<div class="dev-item-vals">';
       listHtml += '<span class="dev-item-value">' + formatValue(item.value) + '</span>';
       listHtml += '<span class="dev-item-norm">норма: ' + item.norm[0] + '–' + item.norm[1] + '</span>';
@@ -684,10 +767,13 @@ function renderDeviationsReport(patient) {
 
     lows.forEach(function(item) {
       var pct = item.norm[0] !== 0 ? Math.round((item.norm[0] - item.value) / item.norm[0] * 100) : 0;
-      listHtml += '<div class="dev-item dev-item--low">';
+      var sev = item.severity || 'moderate';
+      listHtml += '<div class="dev-item dev-item--low dev-sev--' + sev + '">';
       listHtml += '<div class="dev-item-icon">▼</div>';
       listHtml += '<div class="dev-item-body">';
-      listHtml += '<div class="dev-item-name">' + esc(item.name) + '</div>';
+      listHtml += '<div class="dev-item-name">' + esc(item.name) +
+        (sev === 'severe' ? ' <span class="sev-badge sev-badge--severe">выражено</span>' :
+         sev === 'mild' ? ' <span class="sev-badge sev-badge--mild">слабо</span>' : '') + '</div>';
       listHtml += '<div class="dev-item-vals">';
       listHtml += '<span class="dev-item-value">' + formatValue(item.value) + '</span>';
       listHtml += '<span class="dev-item-norm">норма: ' + item.norm[0] + '–' + item.norm[1] + '</span>';
@@ -700,7 +786,7 @@ function renderDeviationsReport(patient) {
     listHtml += '</div>';
   } else {
     listHtml += '<div class="dev-all-ok">';
-    listHtml += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+    listHtml += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
     listHtml += '<span>Все проверенные показатели в норме</span>';
     listHtml += '</div>';
   }
@@ -708,7 +794,7 @@ function renderDeviationsReport(patient) {
   if (suspicious.length > 0) {
     listHtml += '<div class="dev-suspect">';
     listHtml += '<div class="dev-suspect-head">';
-    listHtml += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    listHtml += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
     listHtml += '<span>Проверьте ввод — подозрительные значения</span>';
     listHtml += '</div>';
     suspicious.forEach(function(item) {
@@ -729,6 +815,17 @@ function renderDeviationsReport(patient) {
   $('aiSection').classList.add('hidden');
   $('aiSection').classList.remove('ai-section--loading', 'ai-section--ready');
 
+  var dateSel = $('devDateSelect');
+  if (dateSel) {
+    dateSel.addEventListener('change', function() {
+      state.aiSelectedDate = dateSel.value;
+      renderDeviationsReport(patient);
+      if (state.currentMainTab === 'dashboard') {
+        renderDashboardCharts(patient);
+      }
+    });
+  }
+
   // Привязываем кнопку AI
   if (totalDeviated > 0) {
     var allDeviations = highs.concat(lows).map(function(item) {
@@ -743,6 +840,7 @@ function renderDeviationsReport(patient) {
 
     $('devAiBtn').addEventListener('click', function() {
       setAiButtonLoading(true);
+      state.aiSelectedDate = latestDate;
       showAiSection(allDeviations, patient, latest);
     });
   }
@@ -1053,11 +1151,11 @@ function renderAiResult(text) {
       '</div>';
   }
 
-  var iconPriority = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>';
-  var iconClusters = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
-  var iconCauses = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
-  var iconTests = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>';
-  var iconAttention = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+  var iconPriority = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>';
+  var iconClusters = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
+  var iconCauses = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+  var iconTests = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>';
+  var iconAttention = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
 
   html += blockHtml('ai-block--priority', 'Сначала обратить внимание', blocks.priority, iconPriority);
   html += blockHtml('ai-block--violet', 'Кластеры отклонений', blocks.clusters, iconClusters);
@@ -1363,7 +1461,7 @@ function updateFilterUI() {
   if (toggle) {
     var badge = active.length ? ' <span class="toolbar-badge">' + active.length + '</span>' : '';
     toggle.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>' +
       'Фильтры' + badge;
   }
 }
@@ -1602,16 +1700,16 @@ function switchTab(tab) {
 
 // ===== CHARTS =====
 var CHART_COLORS = [
-  { line: '#3b82f6', bg: 'rgba(59,130,246,.1)' },
-  { line: '#10b981', bg: 'rgba(16,185,129,.1)' },
-  { line: '#f59e0b', bg: 'rgba(245,158,11,.1)' },
-  { line: '#ef4444', bg: 'rgba(239,68,68,.1)' },
-  { line: '#8b5cf6', bg: 'rgba(139,92,246,.1)' },
-  { line: '#06b6d4', bg: 'rgba(6,182,212,.1)' },
-  { line: '#ec4899', bg: 'rgba(236,72,153,.1)' },
-  { line: '#f97316', bg: 'rgba(249,115,22,.1)' },
   { line: '#14b8a6', bg: 'rgba(20,184,166,.1)' },
-  { line: '#6366f1', bg: 'rgba(99,102,241,.1)' }
+  { line: '#0284c7', bg: 'rgba(2,132,199,.1)' },
+  { line: '#0d9488', bg: 'rgba(13,148,136,.1)' },
+  { line: '#e11d48', bg: 'rgba(225,29,72,.1)' },
+  { line: '#d97706', bg: 'rgba(217,119,6,.1)' },
+  { line: '#06b6d4', bg: 'rgba(6,182,212,.1)' },
+  { line: '#0891b2', bg: 'rgba(8,145,178,.1)' },
+  { line: '#f97316', bg: 'rgba(249,115,22,.1)' },
+  { line: '#059669', bg: 'rgba(5,150,105,.1)' },
+  { line: '#0e7490', bg: 'rgba(14,116,144,.1)' }
 ];
 
 function renderCharts(analyses, indicators) {
@@ -1817,6 +1915,7 @@ function updateStatus(s) {
   if (s === 'connected') {
     b.textContent = 'Онлайн'; b.className = 'badge badge-ok';
     mb.textContent = 'Онлайн'; mb.className = 'badge badge-ok mobile-badge';
+    updateDataStamp();
   } else if (s === 'loading') {
     b.textContent = 'Загрузка...'; b.className = 'badge badge-loading';
     mb.textContent = '...'; mb.className = 'badge badge-loading mobile-badge';
@@ -1824,6 +1923,18 @@ function updateStatus(s) {
     b.textContent = 'Ошибка'; b.className = 'badge badge-err';
     mb.textContent = 'Ошибка'; mb.className = 'badge badge-err mobile-badge';
   }
+}
+
+function updateDataStamp() {
+  var el = $('dataStamp');
+  if (!el) return;
+  if (!state.lastDataAt) {
+    el.textContent = '';
+    return;
+  }
+  var d = state.lastDataAt;
+  var t = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  el.textContent = 'обновлено ' + t;
 }
 
 function setRefreshing(on) {

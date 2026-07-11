@@ -293,6 +293,25 @@ function classifyValue(value, low, high) {
 }
 
 /**
+ * Степень отклонения от нормы по относительному выходу за границу.
+ * @returns {'normal'|'mild'|'moderate'|'severe'}
+ */
+function deviationSeverity(value, low, high) {
+  var num = numericValue(value);
+  if (isNaN(num) || low == null || high == null) return 'normal';
+  var cls = classifyValue(num, low, high);
+  if (cls === 'normal' || cls === 'neutral') return 'normal';
+  var ref = cls === 'high' ? high : low;
+  if (!ref && ref !== 0) return 'moderate';
+  var pct = cls === 'high'
+    ? (num - high) / Math.abs(ref || 1)
+    : (low - num) / Math.abs(ref || 1);
+  if (pct >= 0.5) return 'severe';
+  if (pct >= 0.2) return 'moderate';
+  return 'mild';
+}
+
+/**
  * Проверка правдоподобности значения — ловит опечатки ввода:
  * сдвиг запятой (135 вместо 13.5), лишние нули, «космические» цифры,
  * серийные номера дат (напр. 45689), перепутанные точка/запятая.

@@ -50,6 +50,7 @@ var staticFiles = [
   'index.html',
   'login.html',
   'app.js',
+  'enhancements.js',
   'auth.js',
   'norms.js',
   'style.css',
