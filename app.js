@@ -349,10 +349,10 @@ function renderPatientList() {
     item.className = 'patient-item';
     item.setAttribute('data-name', p.name);
 
-    var initials = p.name.trim().split(/\s+/).map(function(w) { return w[0] || ''; }).join('').toUpperCase().slice(0, 2);
+    var genderClass = p.gender === 'Жен' ? 'patient-avatar--f' : 'patient-avatar--m';
 
     item.innerHTML =
-      '<div class="patient-avatar">' + esc(initials) + '</div>' +
+      '<div class="patient-avatar ' + genderClass + '">' + genderIconSvg(p.gender) + '</div>' +
       '<div class="patient-info">' +
         '<div class="patient-name">' + esc(p.name) + '</div>' +
         '<div class="patient-meta">' + esc(p.gender || '') + (p.age ? ', ' + p.age + ' лет' : '') + '</div>' +
@@ -500,9 +500,7 @@ function renderPatientInfo(patient) {
   var card = $('patientInfoCard');
   var analyses = getPatientAnalyses(patient.name);
 
-  var genderIcon = patient.gender === 'Жен'
-    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="5"/><path d="M12 13v8"/><path d="M9 18h6"/></svg>'
-    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="14" r="5"/><path d="M19 5l-5.4 5.4"/><path d="M15 5h4v4"/></svg>';
+  var genderIcon = genderIconSvg(patient.gender);
   var genderClass = patient.gender === 'Жен' ? 'info-gender--f' : 'info-gender--m';
 
   // ── Демография ──
@@ -585,6 +583,14 @@ function renderPatientInfo(patient) {
 }
 
 // Иконки SVG для демографии
+function genderIconSvg(gender) {
+  if (gender === 'Жен') {
+    // Венера — тонкий stroke в стиле Clinical Teal
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4.5"/><path d="M12 12.5v8.5"/><path d="M8.5 17h7"/></svg>';
+  }
+  // Марс
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="14" r="4.5"/><path d="M14 10l5.5-5.5"/><path d="M15 4.5h4.5V9"/></svg>';
+}
 function iconCalendar() {
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
 }
@@ -2166,7 +2172,6 @@ function renderHomeView() {
 
 function renderHomeCard(patient, isMe) {
   var analyses = getPatientAnalyses(patient.name);
-  var initials = patient.name.trim().split(/\s+/).map(function(w) { return w[0] || ''; }).join('').toUpperCase().slice(0, 2);
   var genderClass = patient.gender === 'Жен' ? 'home-card-avatar--f' : 'home-card-avatar--m';
 
   // Последний анализ
@@ -2200,7 +2205,9 @@ function renderHomeCard(patient, isMe) {
 
   return '<div class="home-card" data-name="' + escapeAttr(patient.name) + '">' +
     '<div class="home-card-top">' +
-      '<div class="home-card-avatar ' + genderClass + '">' + esc(initials) + '</div>' +
+      '<div class="home-card-avatar ' + genderClass + '" title="' + escapeAttr(patient.gender || '') + '">' +
+        genderIconSvg(patient.gender) +
+      '</div>' +
       badge +
     '</div>' +
     '<div class="home-card-name">' + esc(patient.name) + '</div>' +

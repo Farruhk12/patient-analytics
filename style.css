@@ -258,9 +258,11 @@ svg:not([fill="currentColor"]) {
   background: rgba(255,255,255,.08);
   color: #c9cde3;
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700;
   transition: var(--transition);
 }
+.patient-avatar svg { width: 18px; height: 18px; }
+.patient-avatar--m { color: #5eead4; background: rgba(15,118,110,.22); }
+.patient-avatar--f { color: #f9a8d4; background: rgba(236,72,153,.18); }
 .patient-item.active .patient-avatar { background: var(--brand-grad); color: #fff; box-shadow: var(--glow); }
 .patient-info { min-width: 0; flex: 1; }
 .patient-name {
@@ -456,9 +458,10 @@ svg:not([fill="currentColor"]) {
 .home-card-avatar {
   width: 46px; height: 46px; border-radius: 14px;
   display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 15px; font-weight: 800;
+  color: #fff;
   box-shadow: var(--shadow-sm);
 }
+.home-card-avatar svg { width: 22px; height: 22px; }
 .home-card-avatar--m { background: linear-gradient(135deg,#0f766e,#38bdf8); }
 .home-card-avatar--f { background: linear-gradient(135deg,#ec4899,#f97316); }
 .home-card-badge {
